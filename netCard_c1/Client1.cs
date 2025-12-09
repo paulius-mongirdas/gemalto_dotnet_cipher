@@ -176,20 +176,19 @@ namespace Cipher.ClientApp
         }
         public static void EstablishSecureChannel(Service service)
         {
+            Console.WriteLine($"IsOnEstablisherChannel: {service.IsOnEstablisherChannel()}");
             service.GenerateRsa();
+
+            Console.WriteLine("Getting public key from card...");
             // 2. Get the public key from the card (Which is the RSA Modulus and the Exponent)
             byte[] cardPKmod = service.GetPublicKey2();
             byte[] cardPKexp = service.GetExponent();
 
-            Console.WriteLine($"IsOnEstablisherChannel: {service.IsOnEstablisherChannel()}");
-            Console.WriteLine("Getting public key from card...");
-
+            Console.WriteLine("Generating session key...");
             // 3. Generate a 128 bit session key (can be generated from the card as well using the same service).
             byte[] sessionKey = new byte[16];
             var rng = new RNGCryptoServiceProvider();
             rng.GetBytes(sessionKey);
-
-            Console.WriteLine("Generating session key...");
 
             // Put the public key from the card into an RSACryptoServiceProvider
             RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider();
@@ -200,19 +199,16 @@ namespace Cipher.ClientApp
             // This is the pin that we share with the card
             byte[] pin = Encoding.UTF8.GetBytes("0000");
 
+            Console.WriteLine("Encrypting PIN and session key...");
             // 4. Encrypt the pin and session key using the public key of the card
             byte[] encryptedPin = rsaProvider.Encrypt(pin, false);
             byte[] encryptedSessionKey = rsaProvider.Encrypt(sessionKey, false);
 
-            Console.WriteLine($"Encrypted PIN: {Convert.ToBase64String(encryptedPin)}");
-
-            Console.WriteLine("Encrypting PIN and session key...");
-
+            Console.WriteLine("Establishing secure channel...");
             // 5. Now call the EstablishSecureChannel method of the card using the encrypted PIN and session key. The
             // card will set up an encrypted channel using the provided session key.
             try
             {
-                Console.WriteLine("Establishing secure channel...");
                 service.EstablishSecureChannel(7655, encryptedPin, encryptedSessionKey);
             }
             catch (Exception ex)
@@ -226,19 +222,17 @@ namespace Cipher.ClientApp
             Hashtable properties = new Hashtable();
             properties["key"] = sessionKey;
             IClientChannelSinkProvider provider = new APDUClientFormatterSinkProvider();
-            //provider.Next = new ServerSessionSinkProvider(properties);
+            provider.Next = new ClientSessionSinkProvider(properties);
             // Create and register a new channel using the sink provider that we've just created.
             string channelName = "SecureChannel_" + DateTime.Now.Ticks;
             // 7.
             APDUClientChannel channel = new APDUClientChannel(channelName, provider);
             ChannelServices.RegisterChannel(channel);
 
-            Service secure_service = (Service)Activator.GetObject(typeof(Service), URL2);
-            //EstablishSecureChannel(secure_service);
-
+            Service secure_service = (Service)Activator.GetObject(typeof(Service), URL2, channelName);
             Console.WriteLine("Communicating over secure channel now.\n");
             // All communication from here onwards are on the encrypted channel
-            Console.WriteLine($"IsOnEstablisherChannel: {secure_service.IsOnEstablisherChannel()}");
+            Console.WriteLine($"IsOnEstablisherChannel: {secure_service.IsOnEstablisherChannel()}\n"); // should be false
             InputLoop(secure_service);
 
             // Close encrypted channel

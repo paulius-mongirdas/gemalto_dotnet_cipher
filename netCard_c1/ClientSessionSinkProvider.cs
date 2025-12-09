@@ -18,7 +18,7 @@ namespace netCard_c1
         private byte[] sessionKey;
         private Hashtable properties;
 
-        public IClientChannelSinkProvider Next { get => nextProvider; set => nextProvider = this; }
+        public IClientChannelSinkProvider Next { get => nextProvider; set => nextProvider = value; }
 
         public ClientSessionSinkProvider(Hashtable properties)
         {

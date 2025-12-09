@@ -31,10 +31,12 @@ namespace netCard_c1
         public void ProcessMessage(IMessage msg, ITransportHeaders requestHeaders, Stream requestStream,
 out ITransportHeaders responseHeaders, out Stream responseStream)
         {
-            requestStream = ProcessOutboundStream(requestStream, "Rijndael", sessionKey);
+            //Service.SetOnEstablisherChannel(true);
+            //requestStream = ProcessOutboundStream(requestStream, "Rijndael", sessionKey);
+            Console.WriteLine("ClientSessionSink: Processing Message");
             // forward the call to the next sink
             nextSink.ProcessMessage(msg, requestHeaders, requestStream, out responseHeaders, out responseStream);
-            responseStream = ProcessInboundStream(responseStream, "Rijndael", sessionKey);
+            //responseStream = ProcessInboundStream(responseStream, "Rijndael", sessionKey);
         }
         public IClientChannelSink NextChannelSink => nextSink;
 

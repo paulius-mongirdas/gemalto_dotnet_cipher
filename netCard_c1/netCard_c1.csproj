@@ -97,7 +97,8 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="netCard Server_stub">
+    <Reference Include="netCard Server_stub, Version=1.0.9474.39458, Culture=neutral, PublicKeyToken=26272048f12bffaf, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>..\netCard_s1\bin\Debug\stub\netCard Server_stub.dll</HintPath>
     </Reference>
     <Reference Include="SmartCard.Runtime, Version=2.3.0.0, Culture=neutral, PublicKeyToken=c4060b922a97e762, processorArchitecture=MSIL">

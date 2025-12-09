@@ -19,13 +19,17 @@ namespace Cipher.OnCardApp
         ContentManager cm = (ContentManager)Activator.GetObject(typeof(ContentManager),
         "ContentManager");
         private int _myPIN = 0000;
-        public static bool _onEstablisherChannel = true;
+        public static bool onEstablisherChannel;
         private RSAParameters rsaParams;
+        private APDUServerChannel secure_channel;
         public bool IsOnEstablisherChannel()
         {
-            return _onEstablisherChannel;
+            return onEstablisherChannel;
         }
-
+        public static void SetOnEstablisherChannel(bool value)
+        {
+            onEstablisherChannel = value;
+        }
         public void GenerateRsa()
         {
             RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(1024);
@@ -33,7 +37,7 @@ namespace Cipher.OnCardApp
         }
         public int GenerateAndSaveKeyIv(string keyFile, int keySizeBits)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -71,7 +75,7 @@ namespace Cipher.OnCardApp
         }
         public int LoadKeyIvFromFile(string keyFile, out byte[] key, out byte[] iv)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -87,7 +91,7 @@ namespace Cipher.OnCardApp
 
         public int EncryptFileStreamed(string inputFile, string outputFile, string keyFile)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -139,7 +143,7 @@ namespace Cipher.OnCardApp
 
         public int DecryptFileStreamed(string inputFile, string outputFile, string keyFile)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -210,7 +214,7 @@ namespace Cipher.OnCardApp
         }
         public void EstablishSecureChannel(int port, byte[] encryptedPin, byte[] encryptedSessionKey)
         {
-            if (!_onEstablisherChannel) throw new UnauthorizedAccessException("This method is to be called with channel having SessionEstablisherSink");
+            if (!onEstablisherChannel) throw new UnauthorizedAccessException("This method is to be called with channel having SessionEstablisherSink");
 
             RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider();
             rsaProvider.ImportParameters(rsaParams);
@@ -226,8 +230,8 @@ namespace Cipher.OnCardApp
             properties["key"] = sessionKey;
             IServerChannelSinkProvider newProvider = new ServerSessionSinkProvider(properties, null);
             newProvider.Next = new APDUServerFormatterSinkProvider();
-            APDUServerChannel channel = new APDUServerChannel(newProvider, port);
-            ChannelServices.RegisterChannel(channel);
+            APDUServerChannel secure_channel = new APDUServerChannel(newProvider, port);
+            ChannelServices.RegisterChannel(secure_channel);
 
             RemotingConfiguration.RegisterWellKnownServiceType(typeof(Service), "gemalto_dotnet_cipher_2.uri", WellKnownObjectMode.Singleton);
         }
@@ -235,7 +239,7 @@ namespace Cipher.OnCardApp
         // c1 ---------------------------
         public string[] GetDirs(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -243,7 +247,7 @@ namespace Cipher.OnCardApp
         }
         public string[] GetFiles(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -251,7 +255,7 @@ namespace Cipher.OnCardApp
         }
         public int CreateDir(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -260,7 +264,7 @@ namespace Cipher.OnCardApp
         }
         public string ReadFile(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -273,7 +277,7 @@ namespace Cipher.OnCardApp
         }
         private string[] ReadKeyFile(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -287,7 +291,7 @@ namespace Cipher.OnCardApp
         }
         public int PutFile(string path, byte[] file)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -296,7 +300,7 @@ namespace Cipher.OnCardApp
         }
         public int DeleteFile(string path)
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -305,7 +309,7 @@ namespace Cipher.OnCardApp
         }
         public int GetMemoryUsage()
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -313,7 +317,7 @@ namespace Cipher.OnCardApp
         }
         public string[] GetServices()
         {
-            if (_onEstablisherChannel)
+            if (onEstablisherChannel)
             {
                 throw new UnauthorizedAccessException("Unauthorized: Cannot use this method without ServerSessionSink");
             }
@@ -410,6 +414,12 @@ namespace Cipher.OnCardApp
                 }
             }
             return outFs;
+        }
+        // Doesn't work
+        private void OnReset(object sender, SessionEndedEventArgs e)
+        {
+            Service.onEstablisherChannel = true;
+            ChannelServices.UnregisterChannel(secure_channel);
         }
     }
 }

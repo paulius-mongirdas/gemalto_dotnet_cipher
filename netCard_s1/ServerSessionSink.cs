@@ -23,13 +23,13 @@ namespace netCard_s1
 
         public ServerSessionSink(IServerChannelSink next, byte[] sessionKey)
         {
-            this.nextSink = next;
+            nextSink = next;
             this.sessionKey = sessionKey;
         }
 
-        public IDictionary Properties => throw new NotImplementedException();
+        public IDictionary Properties => new Hashtable();
 
-        IServerChannelSink IServerChannelSink.NextChannelSink => nextSink;
+        public IServerChannelSink NextChannelSink => nextSink;
 
         public void AsyncProcessResponse(IServerResponseChannelSinkStack sinkStack, object state, IMessage msg, ITransportHeaders headers, Stream stream)
         {
@@ -49,7 +49,7 @@ out ITransportHeaders responseHeaders, out Stream responseStream)
             // decrypt the inbound messsage
             requestStream = Service.ProcessInboundStream(requestStream, "Rijndael", sessionKey);
             // mark that we are on coming from sessionestablishersink
-            Service._onEstablisherChannel = false;
+            Service.onEstablisherChannel = false;
             ServerProcessing srvProc = nextSink.ProcessMessage(sinkStack, requestMsg, requestHeaders, requestStream,
             out responseMsg, out responseHeaders, out responseStream);
             // encrypt the outbound message
