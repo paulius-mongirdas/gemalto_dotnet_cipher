@@ -55,8 +55,60 @@ namespace Cipher.OnCardApp
             }
             return 0;
         }
+
+        public int GenerateAndSaveKeyIvByFileName(string keyFileName, int keySizeBits)
+        {
+            string keyFile = "C:/Keys/" + keyFileName;
+
+            // Validate key size (128,192,256)
+            if (keySizeBits != 128 && keySizeBits != 192 && keySizeBits != 256)
+                throw new ArgumentException("Key size must be 128, 192 or 256.");
+
+            using (Rijndael rij = Rijndael.Create())
+            {
+                rij.KeySize = keySizeBits;
+                rij.BlockSize = 128; // AES block size (Rijndael variant compatible with AES)
+                rij.Mode = CipherMode.CBC;
+                rij.Padding = PaddingMode.PKCS7;
+
+                // Generate random key and IV
+                rij.GenerateKey();
+                rij.GenerateIV();
+
+                byte[] key = (byte[])rij.Key.Clone();
+                byte[] iv = (byte[])rij.IV.Clone();
+
+                // Save to file - Base64 (DO NOT store this unprotected in production)
+                string keyBase64 = Convert.ToBase64String(key);
+                string ivBase64 = Convert.ToBase64String(iv);
+
+                // Simple storage: one line with key, next line with IV.
+                // In production, protect with DPAPI / certificate / secure store.
+                using (StreamWriter sw = new StreamWriter(keyFile, false, Encoding.UTF8))
+                {
+                    sw.WriteLine(keyBase64);
+                    sw.WriteLine(ivBase64);
+                }
+            }
+            return 0;
+        }
+
         public int LoadKeyIvFromFile(string keyFile, out byte[] key, out byte[] iv)
         {
+            string[] lines = ReadKeyFile(keyFile);
+            if (lines.Length < 2)
+                throw new InvalidOperationException("Key file must contain key and iv in Base64, one per line.");
+
+            key = Convert.FromBase64String(lines[0].Trim());
+            iv = Convert.FromBase64String(lines[1].Trim());
+
+            return 0;
+        }
+
+        public int LoadKeyIvFromFileByName(string keyFileName, out byte[] key, out byte[] iv)
+        {
+            string keyFile = "C:/Keys/" + keyFileName;
+
             string[] lines = ReadKeyFile(keyFile);
             if (lines.Length < 2)
                 throw new InvalidOperationException("Key file must contain key and iv in Base64, one per line.");
@@ -115,6 +167,55 @@ namespace Cipher.OnCardApp
             return 0;
         }
 
+        public byte[] EncryptFileStreamedByKeyName(string inputFile, string keyFileName)
+        {
+            byte[] key, iv;
+            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
+
+            const int bufferSize = 1024 * 16;
+
+            using (FileStream inFs = new FileStream(inputFile, FileMode.Open, FileAccess.Read))
+            using (MemoryStream outMs = new MemoryStream(0))
+            using (Rijndael rij = Rijndael.Create())
+            {
+                rij.Mode = CipherMode.CBC;
+                rij.Padding = PaddingMode.PKCS7;
+                rij.Key = key;
+                rij.IV = iv;
+
+                ICryptoTransform encryptor = rij.CreateEncryptor();
+
+                // OPTIONAL: store IV at start (still allowed even if key file has IV)
+                int blockSizeBytes = rij.BlockSize / 8;
+                inFs.Seek(blockSizeBytes, SeekOrigin.Begin);
+
+                byte[] inBuffer = new byte[bufferSize];
+                byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
+
+                while (true)
+                {
+                    int read = inFs.Read(inBuffer, 0, inBuffer.Length);
+                    if (read <= 0) break;
+
+                    bool isLast = (inFs.Position == inFs.Length);
+
+                    if (!isLast)
+                    {
+                        int transformed = encryptor.TransformBlock(inBuffer, 0, read, outBuffer, 0);
+                        outMs.Write(outBuffer, 0, transformed);
+                    }
+                    else
+                    {
+                        byte[] finalBytes = encryptor.TransformFinalBlock(inBuffer, 0, read);
+                        outMs.Write(finalBytes, 0, finalBytes.Length);
+                        Array.Clear(finalBytes, 0, finalBytes.Length);
+                        break;
+                    }
+                }
+                return outMs.ToArray();
+            }
+        }
+
         public int DecryptFileStreamed(string inputFile, string outputFile, string keyFile)
         {
             byte[] key, iv;
@@ -166,11 +267,69 @@ namespace Cipher.OnCardApp
             return 0;
         }
 
+        public byte[] DecryptFileStreamedByKeyName(string inputFile, string keyFileName)
+        {
+            byte[] key, iv;
+            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
+
+            const int bufferSize = 1024 * 16;
+
+            using (FileStream inFs = new FileStream(inputFile, FileMode.Open, FileAccess.Read))
+            using (MemoryStream outMs = new MemoryStream(0))
+            using (Rijndael rij = Rijndael.Create())
+            {
+                rij.Mode = CipherMode.CBC;
+                rij.Padding = PaddingMode.PKCS7;
+                rij.Key = key;
+                rij.IV = iv;
+
+                ICryptoTransform decryptor = rij.CreateDecryptor();
+
+                // If you wrote IV into the file, skip it.
+                // If you do NOT store IV in encrypted file, comment this block out.
+
+                int blockSizeBytes = rij.BlockSize / 8;
+                inFs.Seek(blockSizeBytes, SeekOrigin.Begin);
+
+                byte[] inBuffer = new byte[bufferSize];
+                byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
+
+                while (true)
+                {
+                    int read = inFs.Read(inBuffer, 0, inBuffer.Length);
+                    if (read <= 0) break;
+
+                    bool isLast = (inFs.Position == inFs.Length);
+
+                    if (!isLast)
+                    {
+                        int transformed = decryptor.TransformBlock(inBuffer, 0, read, outBuffer, 0);
+                        outMs.Write(outBuffer, 0, transformed);
+                    }
+                    else
+                    {
+                        byte[] finalBytes = decryptor.TransformFinalBlock(inBuffer, 0, read);
+                        outMs.Write(finalBytes, 0, finalBytes.Length);
+                        Array.Clear(finalBytes, 0, finalBytes.Length);
+                        break;
+                    }
+                }
+
+                return outMs.ToArray();
+            }
+        }
+
         // c1 ---------------------------
         public string[] GetDirs(string path)
         {
             return cm.GetDirectories(path);
         }
+
+        public string[] GetKeys()
+        {
+            return cm.GetFiles("C:/Keys/");
+        }
+
         public string[] GetFiles(string path)
         {
             return cm.GetFiles(path);

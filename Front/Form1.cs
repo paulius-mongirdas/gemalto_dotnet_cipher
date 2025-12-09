@@ -6,6 +6,8 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.Remoting.Channels;
+using SmartCard.Runtime.Remoting.Channels.APDU;
+using Cipher.OnCardApp;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -21,7 +23,11 @@ namespace Front
         private Button btnConnect;
         private Button btnEncrypt;
         private Button btnDecrypt;
+        private TextBox txtKeyName;
+        private Label labelKeyName;
         private Button btnGenerateKeys;
+        private ListBox listKeys;
+        private Label labelAvailableKeys;
         private Button btnRefresh;
         private Label lblCurrentPath;
         private TextBox txtStatus;
@@ -31,8 +37,11 @@ namespace Front
         private string currentPath;
 
         // Smart card service
-        private object service;
+        private Service service;
         private const string URL = "apdu://selfdiscover/gemalto_dotnet_cipher.uri";
+
+        // List of keys on card
+        private string[] availableKeys = new string[0];
 
         public Form1()
         {
@@ -44,8 +53,16 @@ namespace Front
         private void InitializeComponents()
         {
             this.Text = "Smart Card Encryption App";
-            this.Size = new Size(1000, 600);
+            this.Size = new Size(1200, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            // Create main split container for left-right layout
+            SplitContainer mainSplitContainer = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Vertical,
+                SplitterDistance = 800 // ~67% for file list, ~33% for keys
+            };
 
             // Top navigation panel
             Panel topPanel = new Panel
@@ -132,7 +149,7 @@ namespace Front
             };
             btnRefresh.Click += BtnRefresh_Click;
 
-            // Main ListView
+            // Main ListView (LEFT PANEL - File Browser)
             mainListView = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -146,6 +163,73 @@ namespace Front
             mainListView.Columns.Add("Modified", 150);
             mainListView.MouseDoubleClick += MainListView_MouseDoubleClick;
             mainListView.SelectedIndexChanged += MainListView_SelectedIndexChanged;
+
+            // Key Panel (RIGHT PANEL - Key Management)
+            Panel keyPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.WhiteSmoke
+            };
+
+            // Key Name Input Section
+            GroupBox keyNameGroup = new GroupBox
+            {
+                Text = "Key Name for Generation",
+                Location = new Point(10, 10),
+                Size = new Size(370, 80),
+                Font = new Font("Arial", 9, FontStyle.Bold)
+            };
+
+            labelKeyName = new Label
+            {
+                Text = "Key Name:",
+                Location = new Point(10, 25),
+                Size = new Size(80, 20)
+            };
+
+            txtKeyName = new TextBox
+            {
+                Location = new Point(95, 22),
+                Size = new Size(260, 20),
+                Text = "my_key"
+            };
+
+            keyNameGroup.Controls.AddRange(new Control[] { labelKeyName, txtKeyName });
+
+            // Available Keys List Section
+            GroupBox keysListGroup = new GroupBox
+            {
+                Text = "Available Keys on Smart Card",
+                Location = new Point(10, 100),
+                Size = new Size(370, 450),
+                Font = new Font("Arial", 9, FontStyle.Bold)
+            };
+
+            labelAvailableKeys = new Label
+            {
+                Text = "Select a key for operations:",
+                Location = new Point(10, 25),
+                Size = new Size(200, 20)
+            };
+
+            listKeys = new ListBox
+            {
+                Location = new Point(10, 50),
+                Size = new Size(350, 390),
+                SelectionMode = SelectionMode.One,
+                Font = new Font("Consolas", 9)
+            };
+            listKeys.SelectedIndexChanged += LstKeys_SelectedIndexChanged;
+
+            keysListGroup.Controls.AddRange(new Control[] {
+                labelAvailableKeys, listKeys
+            });
+
+            keyPanel.Controls.AddRange(new Control[] { keyNameGroup, keysListGroup });
+
+            // Add panels to split container
+            mainSplitContainer.Panel1.Controls.Add(mainListView);  // Left: File browser
+            mainSplitContainer.Panel2.Controls.Add(keyPanel);      // Right: Key panel
 
             // Status panel
             Panel statusPanel = new Panel
@@ -164,7 +248,7 @@ namespace Front
             txtStatus = new TextBox
             {
                 Location = new Point(5, 25),
-                Size = new Size(970, 70),
+                Size = new Size(1170, 70),
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
@@ -178,8 +262,13 @@ namespace Front
             });
             statusPanel.Controls.AddRange(new Control[] { statusLabel, txtStatus });
 
-            // Add panels to form
-            Controls.AddRange(new Control[] { mainListView, toolbarPanel, topPanel, statusPanel });
+            // Add panels to form in correct docking order (bottom to top)
+            Controls.AddRange(new Control[] {
+                mainSplitContainer,  // Main content
+                statusPanel,         // Status at bottom
+                toolbarPanel,        // Toolbar above status
+                topPanel            // Top navigation
+            });
         }
 
         private void LoadDrives()
@@ -269,10 +358,13 @@ namespace Front
 
         private void UpdateButtons()
         {
+            bool isConnected = service != null; //check connection before anything
+            btnGenerateKeys.Enabled = isConnected;
+
             btnBack.Enabled = pathHistory.Count > 0;
 
             // Enable encrypt/decrypt based on selection
-            if (mainListView.SelectedItems.Count > 0)
+            if (mainListView.SelectedItems.Count > 0 && isConnected)
             {
                 string selectedPath = mainListView.SelectedItems[0].Tag.ToString();
                 bool isFile = File.Exists(selectedPath);
@@ -316,22 +408,50 @@ namespace Front
         {
             try
             {
-                // TODO: Add your smart card connection code here
-                // Uncomment and modify when you have the proper references
-                /*
                 APDUClientChannel channel = new APDUClientChannel();
                 ChannelServices.RegisterChannel(channel);
                 service = (Service)Activator.GetObject(typeof(Service), URL);
-                */
 
-                // Simulate connection for testing
-                service = new object();
-                UpdateStatus("Connected to smart card successfully", Color.Green);
+                string[] serviceList = service.GetServices(); // Test call to verify connection
+                bool success = serviceList != null && serviceList.Length > 0 &&
+                    serviceList.Contains("gemalto_dotnet_cipher.uri");
+                if (success)
+                    UpdateStatus("Connected to smart card successfully", Color.Green);
+
                 btnGenerateKeys.Enabled = true;
+                LoadAvailableKeys();
             }
             catch (Exception ex)
             {
                 UpdateStatus($"Connection failed: {ex.Message}", Color.Red);
+            }
+        }
+
+        private void LoadAvailableKeys()
+        {
+            try
+            {
+                if (service == null) return;
+
+                // Get keys from smart card
+                availableKeys = service.GetKeys();
+
+                listKeys.Items.Clear();
+                foreach (var key in availableKeys)
+                {
+                    listKeys.Items.Add($"{key}");
+                }
+
+                if (listKeys.Items.Count > 0)
+                {
+                    listKeys.SelectedIndex = 0;
+                }
+
+                UpdateStatus($"Loaded {availableKeys.Length} keys from smart card", Color.Blue);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Failed to load keys: {ex.Message}", Color.Red);
             }
         }
 
@@ -409,6 +529,15 @@ namespace Front
                 }
             }
         }
+        
+        private void LstKeys_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (listKeys.SelectedIndex >= 0)
+            {
+                string selectedKey = listKeys.SelectedItem.ToString();
+                UpdateStatus($"Selected key: {selectedKey}", Color.DarkBlue);
+            }
+        }
 
         private void BtnGenerateKeys_Click(object sender, EventArgs e)
         {
@@ -418,31 +547,20 @@ namespace Front
                 return;
             }
 
+            string keyName = txtKeyName.Text.Trim();
+            if (string.IsNullOrEmpty(keyName))
+            {
+                UpdateStatus("Please enter a key name", Color.Orange);
+                return;
+            }
+
             try
             {
-                using (SaveFileDialog saveDialog = new SaveFileDialog())
-                {
-                    saveDialog.Title = "Save Key File";
-                    saveDialog.Filter = "Key files (*.key)|*.key|Text files (*.txt)|*.txt|All files (*.*)|*.*";
-                    saveDialog.FileName = "smartcard_key.key";
-                    saveDialog.DefaultExt = ".key";
+                UpdateStatus($"Generating key '{keyName}'...", Color.Blue);
+                service.GenerateAndSaveKeyIvByFileName(keyName, 256);
 
-                    if (saveDialog.ShowDialog() == DialogResult.OK)
-                    {
-                        UpdateStatus($"Generating keys to {saveDialog.FileName}...", Color.Blue);
-
-                        // TODO: Replace with actual smart card method call
-                        // service.GenerateAndSaveKeyIv(saveDialog.FileName, 256);
-
-                        // Simulate key generation for testing
-                        string testKey = $"AES-256 Key generated at {DateTime.Now}\n";
-                        testKey += $"Key: {Guid.NewGuid():N}\n";
-                        testKey += $"IV: {Guid.NewGuid():N}";
-                        File.WriteAllText(saveDialog.FileName, testKey);
-
-                        UpdateStatus("Keys generated successfully", Color.Green);
-                    }
-                }
+                UpdateStatus($"Key '{keyName}' generated and stored on smart card", Color.Green);
+                LoadAvailableKeys();
             }
             catch (Exception ex)
             {
@@ -459,6 +577,7 @@ namespace Front
             }
 
             string selectedFile = mainListView.SelectedItems[0].Tag.ToString();
+            string keyName = listKeys.SelectedItem.ToString();
 
             if (!File.Exists(selectedFile))
             {
@@ -467,23 +586,24 @@ namespace Front
             }
 
             string encryptedFile = Path.Combine(Path.GetDirectoryName(selectedFile), Path.GetFileName(selectedFile) + ".enc");
-
-            // Keep key selection if needed
-            using (OpenFileDialog keyDialog = new OpenFileDialog())
+            
+            try
             {
-                keyDialog.Title = "Select Key File for Encryption";
-                keyDialog.Filter = "Key files (*.key;*.txt)|*.key;*.txt|All files (*.*)|*.*";
-                keyDialog.CheckFileExists = true;
+                UpdateStatus($"Encrypting '{Path.GetFileName(selectedFile)}' with key '{keyName}'...", Color.Blue);
 
-                if (keyDialog.ShowDialog() == DialogResult.OK)
-                {
-                    // Use 'encryptedFile' path directly for output
-                    File.Copy(selectedFile, encryptedFile, true); // Replace with actual encryption
-                    UpdateStatus($"Success! Encrypted file created: {Path.GetFileName(encryptedFile)}", Color.Green);
+                byte[] encryptedData = service.EncryptFileStreamedByKeyName(selectedFile, keyName);
 
-                    if (!string.IsNullOrEmpty(currentPath))
-                        LoadDirectory(currentPath);
-                }
+                // Write the encrypted bytes to file
+                File.WriteAllBytes(encryptedFile, encryptedData);
+
+                UpdateStatus($"Success! Encrypted file created: {Path.GetFileName(encryptedFile)}", Color.Green);
+
+                if (!string.IsNullOrEmpty(currentPath))
+                    LoadDirectory(currentPath);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Encryption failed: {ex.Message}", Color.Red);
             }
         }
 
@@ -496,6 +616,7 @@ namespace Front
             }
 
             string selectedFile = mainListView.SelectedItems[0].Tag.ToString();
+            string keyName = listKeys.SelectedItem.ToString();
 
             if (!File.Exists(selectedFile))
             {
@@ -509,21 +630,23 @@ namespace Front
                 (selectedFile.EndsWith(".enc") ? "" : ".txt")
             );
 
-            // Keep key selection if needed
-            using (OpenFileDialog keyDialog = new OpenFileDialog())
+            try
             {
-                keyDialog.Title = "Select Key File for Decryption";
-                keyDialog.Filter = "Key files (*.key;*.txt)|*.key;*.txt|All files (*.*)|*.*";
-                keyDialog.CheckFileExists = true;
+                UpdateStatus($"Decrypting '{Path.GetFileName(selectedFile)}' with key '{keyName}'...", Color.Blue);
 
-                if (keyDialog.ShowDialog() == DialogResult.OK)
-                {
-                    File.Copy(selectedFile, decryptedFile, true); // Replace with actual decryption
-                    UpdateStatus($"Success! Decrypted file saved: {Path.GetFileName(decryptedFile)}", Color.Green);
+                byte[] decryptedData = service.DecryptFileStreamedByKeyName(selectedFile, keyName);
 
-                    if (!string.IsNullOrEmpty(currentPath))
-                        LoadDirectory(currentPath);
-                }
+                // Write the decrypted bytes to file
+                File.WriteAllBytes(decryptedFile, decryptedData);
+
+                UpdateStatus($"Success! Decrypted file saved: {Path.GetFileName(decryptedFile)}", Color.Green);
+
+                if (!string.IsNullOrEmpty(currentPath))
+                    LoadDirectory(currentPath);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Decryption failed: {ex.Message}", Color.Red);
             }
         }
 
@@ -543,8 +666,10 @@ namespace Front
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // TODO: Uncomment when you have the proper references
-            // ChannelServices.UnregisterAllChannels();
+            ChannelServices.UnregisterChannel(
+                ChannelServices.RegisteredChannels
+                .FirstOrDefault(c => c is APDUClientChannel)
+            );
             base.OnFormClosing(e);
         }
     }
