@@ -21,6 +21,12 @@ namespace Cipher.OnCardApp
         int attempts = 0;
         int maxAttempts = 5;
 
+        private Rijndael currentRijndael;
+        private ICryptoTransform currentEncryptor;
+        private MemoryStream encryptedStream;
+        private ICryptoTransform currentDecryptor;
+        private MemoryStream decryptedStream;
+
         public int GenerateAndSaveKeyIv(string keyFile, int keySizeBits)
         {
             // Validate key size (128,192,256)
@@ -167,17 +173,21 @@ namespace Cipher.OnCardApp
             return 0;
         }
 
-        public byte[] EncryptFileStreamedByKeyName(string inputFile, string keyFileName)
+        public byte[] EncryptFileStreamedByKeyName(byte[] inputFileData, string keyFileName)
         {
+
             byte[] key, iv;
             LoadKeyIvFromFileByName(keyFileName, out key, out iv);
 
             const int bufferSize = 1024 * 16;
 
-            using (FileStream inFs = new FileStream(inputFile, FileMode.Open, FileAccess.Read))
+            using (MemoryStream inMs = new MemoryStream(inputFileData.Length))
             using (MemoryStream outMs = new MemoryStream(0))
             using (Rijndael rij = Rijndael.Create())
             {
+                inMs.Write(inputFileData, 0, inputFileData.Length);
+                inMs.Position = 0;
+
                 rij.Mode = CipherMode.CBC;
                 rij.Padding = PaddingMode.PKCS7;
                 rij.Key = key;
@@ -187,17 +197,17 @@ namespace Cipher.OnCardApp
 
                 // OPTIONAL: store IV at start (still allowed even if key file has IV)
                 int blockSizeBytes = rij.BlockSize / 8;
-                inFs.Seek(blockSizeBytes, SeekOrigin.Begin);
+                inMs.Seek(blockSizeBytes, SeekOrigin.Begin);
 
                 byte[] inBuffer = new byte[bufferSize];
                 byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
 
                 while (true)
                 {
-                    int read = inFs.Read(inBuffer, 0, inBuffer.Length);
+                    int read = inMs.Read(inBuffer, 0, inBuffer.Length);
                     if (read <= 0) break;
 
-                    bool isLast = (inFs.Position == inFs.Length);
+                    bool isLast = (inMs.Position == inMs.Length);
 
                     if (!isLast)
                     {
@@ -213,6 +223,106 @@ namespace Cipher.OnCardApp
                     }
                 }
                 return outMs.ToArray();
+            }
+        }
+
+        public void StartEncryption(string keyFileName)
+        {
+            byte[] key, iv;
+            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
+
+            // Clear old session if exists
+            if (currentEncryptor != null)
+            {
+                try { currentEncryptor.Dispose(); } catch { }
+            }
+            if (currentRijndael != null)
+            {
+                try
+                {
+                    if (currentRijndael.Key != null)
+                        Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                    if (currentRijndael.IV != null)
+                        Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+                }
+                catch { }
+            }
+            if (encryptedStream != null)
+            {
+                try { encryptedStream.Close(); } catch { }
+            }
+
+            currentRijndael = Rijndael.Create();
+            currentRijndael.Mode = CipherMode.CBC;
+            currentRijndael.Padding = PaddingMode.PKCS7;
+            currentRijndael.Key = key;
+            currentRijndael.IV = iv;
+            currentEncryptor = currentRijndael.CreateEncryptor();
+            encryptedStream = new MemoryStream(0);
+        }
+
+        public byte[] ProcessEncryptionChunk(byte[] chunk, bool isFinal)
+        {
+            if (currentEncryptor == null)
+                throw new InvalidOperationException("Encryption not started. Call StartEncryption first.");
+
+            if (isFinal)
+            {
+                // Final chunk
+                byte[] finalBytes = currentEncryptor.TransformFinalBlock(chunk, 0, chunk.Length);
+                encryptedStream.Write(finalBytes, 0, finalBytes.Length);
+
+                // Get result
+                byte[] result = encryptedStream.ToArray();
+
+                // Cleanup
+                currentEncryptor.Dispose();
+                encryptedStream.Close();
+
+                // Clear sensitive data
+                if (currentRijndael.Key != null)
+                    Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                if (currentRijndael.IV != null)
+                    Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+
+                currentEncryptor = null;
+                currentRijndael = null;
+                encryptedStream = null;
+
+                return result;
+            }
+            else
+            {
+                // Regular chunk
+                byte[] outBuffer = new byte[chunk.Length + currentRijndael.BlockSize / 8];
+                int transformed = currentEncryptor.TransformBlock(chunk, 0, chunk.Length, outBuffer, 0);
+                encryptedStream.Write(outBuffer, 0, transformed);
+
+                // Return empty array for non-final chunks (or you could return progress info)
+                return new byte[0];
+            }
+        }
+
+        public void CancelEncryption()
+        {
+            try
+            {
+                currentEncryptor?.Dispose();
+                encryptedStream?.Close();
+
+                if (currentRijndael != null)
+                {
+                    if (currentRijndael.Key != null)
+                        Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                    if (currentRijndael.IV != null)
+                        Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+                }
+            }
+            finally
+            {
+                currentEncryptor = null;
+                currentRijndael = null;
+                encryptedStream = null;
             }
         }
 
@@ -267,17 +377,20 @@ namespace Cipher.OnCardApp
             return 0;
         }
 
-        public byte[] DecryptFileStreamedByKeyName(string inputFile, string keyFileName)
+        public byte[] DecryptFileStreamedByKeyName(byte[] inputFileData, string keyFileName)
         {
             byte[] key, iv;
             LoadKeyIvFromFileByName(keyFileName, out key, out iv);
 
             const int bufferSize = 1024 * 16;
 
-            using (FileStream inFs = new FileStream(inputFile, FileMode.Open, FileAccess.Read))
+            using (MemoryStream inMs = new MemoryStream(inputFileData.Length))
             using (MemoryStream outMs = new MemoryStream(0))
             using (Rijndael rij = Rijndael.Create())
             {
+                inMs.Write(inputFileData, 0, inputFileData.Length);
+                inMs.Position = 0;
+
                 rij.Mode = CipherMode.CBC;
                 rij.Padding = PaddingMode.PKCS7;
                 rij.Key = key;
@@ -289,17 +402,17 @@ namespace Cipher.OnCardApp
                 // If you do NOT store IV in encrypted file, comment this block out.
 
                 int blockSizeBytes = rij.BlockSize / 8;
-                inFs.Seek(blockSizeBytes, SeekOrigin.Begin);
+                inMs.Seek(blockSizeBytes, SeekOrigin.Begin);
 
                 byte[] inBuffer = new byte[bufferSize];
                 byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
 
                 while (true)
                 {
-                    int read = inFs.Read(inBuffer, 0, inBuffer.Length);
+                    int read = inMs.Read(inBuffer, 0, inBuffer.Length);
                     if (read <= 0) break;
 
-                    bool isLast = (inFs.Position == inFs.Length);
+                    bool isLast = (inMs.Position == inMs.Length);
 
                     if (!isLast)
                     {
@@ -319,6 +432,106 @@ namespace Cipher.OnCardApp
             }
         }
 
+        public void StartDecryption(string keyFileName)
+        {
+            byte[] key, iv;
+            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
+
+            // Clear old session if exists
+            if (currentDecryptor != null)
+            {
+                try { currentDecryptor.Dispose(); } catch { }
+            }
+            if (currentRijndael != null)
+            {
+                try
+                {
+                    if (currentRijndael.Key != null)
+                        Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                    if (currentRijndael.IV != null)
+                        Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+                }
+                catch { }
+            }
+            if (decryptedStream != null)
+            {
+                try { decryptedStream.Close(); } catch { }
+            }
+
+            currentRijndael = Rijndael.Create();
+            currentRijndael.Mode = CipherMode.CBC;
+            currentRijndael.Padding = PaddingMode.PKCS7;
+            currentRijndael.Key = key;
+            currentRijndael.IV = iv;
+            currentDecryptor = currentRijndael.CreateDecryptor();
+            decryptedStream = new MemoryStream(0);
+        }
+
+        public byte[] ProcessDecryptionChunk(byte[] chunk, bool isFinal)
+        {
+            if (currentDecryptor == null)
+                throw new InvalidOperationException("Decryption not started. Call StartDecryption first.");
+
+            if (isFinal)
+            {
+                // Final chunk
+                byte[] finalBytes = currentDecryptor.TransformFinalBlock(chunk, 0, chunk.Length);
+                decryptedStream.Write(finalBytes, 0, finalBytes.Length);
+
+                // Get result
+                byte[] result = decryptedStream.ToArray();
+
+                // Cleanup
+                currentDecryptor.Dispose();
+                decryptedStream.Close();
+
+                // Clear sensitive data
+                if (currentRijndael.Key != null)
+                    Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                if (currentRijndael.IV != null)
+                    Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+
+                currentDecryptor = null;
+                currentRijndael = null;
+                decryptedStream = null;
+
+                return result;
+            }
+            else
+            {
+                // Regular chunk
+                byte[] outBuffer = new byte[chunk.Length + currentRijndael.BlockSize / 8];
+                int transformed = currentDecryptor.TransformBlock(chunk, 0, chunk.Length, outBuffer, 0);
+                decryptedStream.Write(outBuffer, 0, transformed);
+
+                // Return empty array for non-final chunks
+                return new byte[0];
+            }
+        }
+
+        public void CancelDecryption()
+        {
+            try
+            {
+                currentDecryptor?.Dispose();
+                decryptedStream?.Close();
+
+                if (currentRijndael != null)
+                {
+                    if (currentRijndael.Key != null)
+                        Array.Clear(currentRijndael.Key, 0, currentRijndael.Key.Length);
+                    if (currentRijndael.IV != null)
+                        Array.Clear(currentRijndael.IV, 0, currentRijndael.IV.Length);
+                }
+            }
+            finally
+            {
+                currentDecryptor = null;
+                currentRijndael = null;
+                decryptedStream = null;
+            }
+        }
+
         // c1 ---------------------------
         public string[] GetDirs(string path)
         {
@@ -327,7 +540,7 @@ namespace Cipher.OnCardApp
 
         public string[] GetKeys()
         {
-            return cm.GetFiles("C:/Keys/");
+            return cm.GetFiles("C:\\Keys");
         }
 
         public string[] GetFiles(string path)

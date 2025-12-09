@@ -412,10 +412,10 @@ namespace Front
                 ChannelServices.RegisterChannel(channel);
                 service = (Service)Activator.GetObject(typeof(Service), URL);
 
-                string[] serviceList = service.GetServices(); // Test call to verify connection
-                bool success = serviceList != null && serviceList.Length > 0 &&
-                    serviceList.Contains("gemalto_dotnet_cipher.uri");
-                if (success)
+                //string[] serviceList = service.GetServices(); // Test call to verify connection
+                //bool success = serviceList != null && serviceList.Length > 0 &&
+                //    serviceList.Contains("gemalto_dotnet_cipher.uri");
+                //if (success)
                     UpdateStatus("Connected to smart card successfully", Color.Green);
 
                 btnGenerateKeys.Enabled = true;
@@ -586,24 +586,62 @@ namespace Front
             }
 
             string encryptedFile = Path.Combine(Path.GetDirectoryName(selectedFile), Path.GetFileName(selectedFile) + ".enc");
-            
+
             try
             {
-                UpdateStatus($"Encrypting '{Path.GetFileName(selectedFile)}' with key '{keyName}'...", Color.Blue);
+                FileInfo fileInfo = new FileInfo(selectedFile);
+                long fileSize = fileInfo.Length;
 
-                byte[] encryptedData = service.EncryptFileStreamedByKeyName(selectedFile, keyName);
+                UpdateStatus($"Encrypting '{Path.GetFileName(selectedFile)}' ({FormatFileSize(fileSize)}) with key '{keyName}'...", Color.Blue);
 
-                // Write the encrypted bytes to file
-                File.WriteAllBytes(encryptedFile, encryptedData);
+                // Start encryption session on smart card
+                service.StartEncryption(keyName);
 
-                UpdateStatus($"Success! Encrypted file created: {Path.GetFileName(encryptedFile)}", Color.Green);
+                // Use smaller chunks for smart card
+                const int CHUNK_SIZE = 256;
+                byte[] buffer = new byte[CHUNK_SIZE];
+                long totalBytesProcessed = 0;
 
-                if (!string.IsNullOrEmpty(currentPath))
-                    LoadDirectory(currentPath);
+                using (FileStream fs = new FileStream(selectedFile, FileMode.Open, FileAccess.Read))
+                {
+                    int bytesRead;
+                    while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        byte[] chunk = new byte[bytesRead];
+                        Array.Copy(buffer, chunk, bytesRead);
+
+                        bool isFinal = (fs.Position == fs.Length);
+                        byte[] result = service.ProcessEncryptionChunk(chunk, isFinal);
+
+                        totalBytesProcessed += bytesRead;
+
+                        // Update progress
+                        int percent = (int)((totalBytesProcessed * 100) / fileSize);
+                        UpdateStatus($"Encrypting... {percent}% ({FormatFileSize(totalBytesProcessed)}/{FormatFileSize(fileSize)})", Color.Blue);
+
+                        // For final chunk, we get the encrypted data
+                        if (isFinal && result.Length > 0)
+                        {
+                            // Write the encrypted bytes to file
+                            File.WriteAllBytes(encryptedFile, result);
+
+                            UpdateStatus($"Success! Encrypted file created: {Path.GetFileName(encryptedFile)}", Color.Green);
+
+                            if (!string.IsNullOrEmpty(currentPath))
+                                LoadDirectory(currentPath);
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
                 UpdateStatus($"Encryption failed: {ex.Message}", Color.Red);
+
+                // Try to cancel the encryption session
+                try { service.CancelEncryption(); } catch { }
+
+                // Clean up partial file
+                try { if (File.Exists(encryptedFile)) File.Delete(encryptedFile); } catch { }
             }
         }
 
@@ -632,21 +670,59 @@ namespace Front
 
             try
             {
-                UpdateStatus($"Decrypting '{Path.GetFileName(selectedFile)}' with key '{keyName}'...", Color.Blue);
+                FileInfo fileInfo = new FileInfo(selectedFile);
+                long fileSize = fileInfo.Length;
 
-                byte[] decryptedData = service.DecryptFileStreamedByKeyName(selectedFile, keyName);
+                UpdateStatus($"Decrypting '{Path.GetFileName(selectedFile)}' ({FormatFileSize(fileSize)}) with key '{keyName}'...", Color.Blue);
 
-                // Write the decrypted bytes to file
-                File.WriteAllBytes(decryptedFile, decryptedData);
+                // Start decryption session on smart card
+                service.StartDecryption(keyName);
 
-                UpdateStatus($"Success! Decrypted file saved: {Path.GetFileName(decryptedFile)}", Color.Green);
+                // Use smaller chunks for smart card communication
+                const int CHUNK_SIZE = 256; // Same as encryption
+                byte[] buffer = new byte[CHUNK_SIZE];
+                long totalBytesProcessed = 0;
 
-                if (!string.IsNullOrEmpty(currentPath))
-                    LoadDirectory(currentPath);
+                using (FileStream fs = new FileStream(selectedFile, FileMode.Open, FileAccess.Read))
+                {
+                    int bytesRead;
+                    while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        byte[] chunk = new byte[bytesRead];
+                        Array.Copy(buffer, chunk, bytesRead);
+
+                        bool isFinal = (fs.Position == fs.Length);
+                        byte[] result = service.ProcessDecryptionChunk(chunk, isFinal);
+
+                        totalBytesProcessed += bytesRead;
+
+                        // Update progress
+                        int percent = (int)((totalBytesProcessed * 100) / fileSize);
+                        UpdateStatus($"Decrypting... {percent}% ({FormatFileSize(totalBytesProcessed)}/{FormatFileSize(fileSize)})", Color.Blue);
+
+                        // For final chunk, we get the decrypted data
+                        if (isFinal && result.Length > 0)
+                        {
+                            // Write the decrypted bytes to file
+                            File.WriteAllBytes(decryptedFile, result);
+
+                            UpdateStatus($"Success! Decrypted file saved: {Path.GetFileName(decryptedFile)}", Color.Green);
+
+                            if (!string.IsNullOrEmpty(currentPath))
+                                LoadDirectory(currentPath);
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
                 UpdateStatus($"Decryption failed: {ex.Message}", Color.Red);
+
+                // Try to cancel the decryption session
+                try { service.CancelDecryption(); } catch { }
+
+                // Clean up partial file
+                try { if (File.Exists(decryptedFile)) File.Delete(decryptedFile); } catch { }
             }
         }
 
