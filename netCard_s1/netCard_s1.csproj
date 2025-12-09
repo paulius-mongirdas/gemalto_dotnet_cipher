@@ -109,6 +109,8 @@ call GemaltoConverter.exe "$(TargetPath)</PostBuildEvent>
       <HintPath>..\utils\NET Smartcard Framework SDK\v2.3.0\Libraries\On Card\Framework Libraries\v3.0.0.0\mscorlib.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="System.Configuration" />
+    <Reference Include="System.Web" />
     <Reference Include="System.Xml">
       <HintPath>..\utils\NET Smartcard Framework SDK\v2.3.0\Libraries\On Card\Framework Libraries\v2.1.213.9175\System.Xml.dll</HintPath>
     </Reference>
@@ -128,7 +130,10 @@ call GemaltoConverter.exe "$(TargetPath)</PostBuildEvent>
   <ItemGroup>
     <Compile Include="AssemblyInfo.cs" />
     <Compile Include="Server.cs" />
+    <Compile Include="ServerSessionSink.cs" />
+    <Compile Include="ServerSessionSinkProvider.cs" />
     <Compile Include="Service.cs" />
+    <Compile Include="SymmetricCrypto.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

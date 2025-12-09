@@ -124,6 +124,8 @@
     <Compile Include="Client1.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ClientSessionSink.cs" />
+    <Compile Include="ClientSessionSinkProvider.cs" />
     <Content Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>

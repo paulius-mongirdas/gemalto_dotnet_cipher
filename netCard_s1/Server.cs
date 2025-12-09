@@ -1,7 +1,9 @@
 
 using System;
+using System.Collections;
 using System.Runtime.Remoting;
 using System.Runtime.Remoting.Channels;
+using netCard_s1;
 using SmartCard.Runtime.Remoting.Channels.APDU;
 
 namespace Cipher.OnCardApp
@@ -15,7 +17,7 @@ namespace Cipher.OnCardApp
         /// specify the exposed remote object URI.
         /// </summary>
         private const string REMOTE_OBJECT_URI = "gemalto_dotnet_cipher.uri";
-
+        internal static ArrayList channels = new ArrayList();
         /// <summary>
         /// Register the server onto the card.
         /// </summary>
@@ -30,6 +32,7 @@ namespace Cipher.OnCardApp
 
             return 0;
         }
+
     }
 }
 

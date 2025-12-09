@@ -6,6 +6,12 @@ using SmartCard.Runtime.Remoting.Channels.APDU;
 // The stub file is automatically generated for you, under [Server Project Output]\Stub).
 using System.IO;
 using Cipher.OnCardApp;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Text;
+using netCard_c1;
+using System.Collections;
+using static System.Collections.Specialized.BitVector32;
 
 namespace Cipher.ClientApp
 {
@@ -15,19 +21,20 @@ namespace Cipher.ClientApp
     public class Client1
     {
         private const string URL = "apdu://selfdiscover/gemalto_dotnet_cipher.uri";
+        private const string URL2 = "apdu://selfdiscover/gemalto_dotnet_cipher_2.uri";
 
         public static void Main()
         {
-            // Sukurti ir užregistruoti komunikavimo kanalą
+            // 1. Sukurti ir užregistruoti komunikavimo kanalą
             APDUClientChannel channel = new APDUClientChannel();
             ChannelServices.RegisterChannel(channel);
 
             // gauti nuorodą į kortelėje veikianti objekta
             Service service = (Service)Activator.GetObject(typeof(Service), URL);
 
-            InputLoop(service);
+            //InputLoop(service);
+            EstablishSecureChannel(service);
 
-            // uždaryti komunikavimo kanalą
             ChannelServices.UnregisterChannel(channel);
         }
         public static void InputLoop(Service service)
@@ -166,6 +173,76 @@ namespace Cipher.ClientApp
                         break;
                 }
             }
+        }
+        public static void EstablishSecureChannel(Service service)
+        {
+            service.GenerateRsa();
+            // 2. Get the public key from the card (Which is the RSA Modulus and the Exponent)
+            byte[] cardPKmod = service.GetPublicKey2();
+            byte[] cardPKexp = service.GetExponent();
+
+            Console.WriteLine($"IsOnEstablisherChannel: {service.IsOnEstablisherChannel()}");
+            Console.WriteLine("Getting public key from card...");
+
+            // 3. Generate a 128 bit session key (can be generated from the card as well using the same service).
+            byte[] sessionKey = new byte[16];
+            var rng = new RNGCryptoServiceProvider();
+            rng.GetBytes(sessionKey);
+
+            Console.WriteLine("Generating session key...");
+
+            // Put the public key from the card into an RSACryptoServiceProvider
+            RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider();
+            RSAParameters rsaParam = new RSAParameters();
+            rsaParam.Modulus = cardPKmod;
+            rsaParam.Exponent = cardPKexp;
+            rsaProvider.ImportParameters(rsaParam);
+            // This is the pin that we share with the card
+            byte[] pin = Encoding.UTF8.GetBytes("0000");
+
+            // 4. Encrypt the pin and session key using the public key of the card
+            byte[] encryptedPin = rsaProvider.Encrypt(pin, false);
+            byte[] encryptedSessionKey = rsaProvider.Encrypt(sessionKey, false);
+
+            Console.WriteLine($"Encrypted PIN: {Convert.ToBase64String(encryptedPin)}");
+
+            Console.WriteLine("Encrypting PIN and session key...");
+
+            // 5. Now call the EstablishSecureChannel method of the card using the encrypted PIN and session key. The
+            // card will set up an encrypted channel using the provided session key.
+            try
+            {
+                Console.WriteLine("Establishing secure channel...");
+                service.EstablishSecureChannel(7655, encryptedPin, encryptedSessionKey);
+            }
+            catch (Exception ex)
+            {
+                throw new AuthenticationException(ex.Message);
+            }
+
+            Console.WriteLine("Secure channel established.");
+            // 6. Set up a Sink Provider with a SessionSink attached to it using the sessionKey as a parameter for
+            // creating the SessionSink.
+            Hashtable properties = new Hashtable();
+            properties["key"] = sessionKey;
+            IClientChannelSinkProvider provider = new APDUClientFormatterSinkProvider();
+            //provider.Next = new ServerSessionSinkProvider(properties);
+            // Create and register a new channel using the sink provider that we've just created.
+            string channelName = "SecureChannel_" + DateTime.Now.Ticks;
+            // 7.
+            APDUClientChannel channel = new APDUClientChannel(channelName, provider);
+            ChannelServices.RegisterChannel(channel);
+
+            Service secure_service = (Service)Activator.GetObject(typeof(Service), URL2);
+            //EstablishSecureChannel(secure_service);
+
+            Console.WriteLine("Communicating over secure channel now.\n");
+            // All communication from here onwards are on the encrypted channel
+            Console.WriteLine($"IsOnEstablisherChannel: {secure_service.IsOnEstablisherChannel()}");
+            InputLoop(secure_service);
+
+            // Close encrypted channel
+            ChannelServices.UnregisterChannel(channel);
         }
     }
 }
