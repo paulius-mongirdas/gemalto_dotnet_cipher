@@ -173,59 +173,6 @@ namespace Cipher.OnCardApp
             return 0;
         }
 
-        public byte[] EncryptFileStreamedByKeyName(byte[] inputFileData, string keyFileName)
-        {
-
-            byte[] key, iv;
-            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
-
-            const int bufferSize = 1024 * 16;
-
-            using (MemoryStream inMs = new MemoryStream(inputFileData.Length))
-            using (MemoryStream outMs = new MemoryStream(0))
-            using (Rijndael rij = Rijndael.Create())
-            {
-                inMs.Write(inputFileData, 0, inputFileData.Length);
-                inMs.Position = 0;
-
-                rij.Mode = CipherMode.CBC;
-                rij.Padding = PaddingMode.PKCS7;
-                rij.Key = key;
-                rij.IV = iv;
-
-                ICryptoTransform encryptor = rij.CreateEncryptor();
-
-                // OPTIONAL: store IV at start (still allowed even if key file has IV)
-                int blockSizeBytes = rij.BlockSize / 8;
-                inMs.Seek(blockSizeBytes, SeekOrigin.Begin);
-
-                byte[] inBuffer = new byte[bufferSize];
-                byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
-
-                while (true)
-                {
-                    int read = inMs.Read(inBuffer, 0, inBuffer.Length);
-                    if (read <= 0) break;
-
-                    bool isLast = (inMs.Position == inMs.Length);
-
-                    if (!isLast)
-                    {
-                        int transformed = encryptor.TransformBlock(inBuffer, 0, read, outBuffer, 0);
-                        outMs.Write(outBuffer, 0, transformed);
-                    }
-                    else
-                    {
-                        byte[] finalBytes = encryptor.TransformFinalBlock(inBuffer, 0, read);
-                        outMs.Write(finalBytes, 0, finalBytes.Length);
-                        Array.Clear(finalBytes, 0, finalBytes.Length);
-                        break;
-                    }
-                }
-                return outMs.ToArray();
-            }
-        }
-
         public void StartEncryption(string keyFileName)
         {
             byte[] key, iv;
@@ -375,61 +322,6 @@ namespace Cipher.OnCardApp
                 }
             }
             return 0;
-        }
-
-        public byte[] DecryptFileStreamedByKeyName(byte[] inputFileData, string keyFileName)
-        {
-            byte[] key, iv;
-            LoadKeyIvFromFileByName(keyFileName, out key, out iv);
-
-            const int bufferSize = 1024 * 16;
-
-            using (MemoryStream inMs = new MemoryStream(inputFileData.Length))
-            using (MemoryStream outMs = new MemoryStream(0))
-            using (Rijndael rij = Rijndael.Create())
-            {
-                inMs.Write(inputFileData, 0, inputFileData.Length);
-                inMs.Position = 0;
-
-                rij.Mode = CipherMode.CBC;
-                rij.Padding = PaddingMode.PKCS7;
-                rij.Key = key;
-                rij.IV = iv;
-
-                ICryptoTransform decryptor = rij.CreateDecryptor();
-
-                // If you wrote IV into the file, skip it.
-                // If you do NOT store IV in encrypted file, comment this block out.
-
-                int blockSizeBytes = rij.BlockSize / 8;
-                inMs.Seek(blockSizeBytes, SeekOrigin.Begin);
-
-                byte[] inBuffer = new byte[bufferSize];
-                byte[] outBuffer = new byte[bufferSize + rij.BlockSize / 8];
-
-                while (true)
-                {
-                    int read = inMs.Read(inBuffer, 0, inBuffer.Length);
-                    if (read <= 0) break;
-
-                    bool isLast = (inMs.Position == inMs.Length);
-
-                    if (!isLast)
-                    {
-                        int transformed = decryptor.TransformBlock(inBuffer, 0, read, outBuffer, 0);
-                        outMs.Write(outBuffer, 0, transformed);
-                    }
-                    else
-                    {
-                        byte[] finalBytes = decryptor.TransformFinalBlock(inBuffer, 0, read);
-                        outMs.Write(finalBytes, 0, finalBytes.Length);
-                        Array.Clear(finalBytes, 0, finalBytes.Length);
-                        break;
-                    }
-                }
-
-                return outMs.ToArray();
-            }
         }
 
         public void StartDecryption(string keyFileName)
