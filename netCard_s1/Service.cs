@@ -64,7 +64,14 @@ namespace Cipher.OnCardApp
 
         public int GenerateAndSaveKeyIvByFileName(string keyFileName, int keySizeBits)
         {
-            string keyFile = "C:/Keys/" + keyFileName;
+            string keysFolder = "C:/Keys/";
+
+            if (!Directory.Exists(keysFolder))
+            {
+                Directory.CreateDirectory(keysFolder);
+            }
+
+            string keyFile = keysFolder + keyFileName;
 
             // Validate key size (128,192,256)
             if (keySizeBits != 128 && keySizeBits != 192 && keySizeBits != 256)
@@ -113,7 +120,19 @@ namespace Cipher.OnCardApp
 
         public int LoadKeyIvFromFileByName(string keyFileName, out byte[] key, out byte[] iv)
         {
-            string keyFile = "C:/Keys/" + keyFileName;
+            string keysFolder = "C:/Keys/";
+            string keyFile = keysFolder + keyFileName;
+
+            // Check if Keys folder exists
+            if (!Directory.Exists(keysFolder))
+            {
+                throw new DirectoryNotFoundException($"Keys folder not found: {keysFolder}");
+            }
+
+            if (!File.Exists(keyFile))
+            {
+                throw new FileNotFoundException($"Key file not found: {keyFile}");
+            }
 
             string[] lines = ReadKeyFile(keyFile);
             if (lines.Length < 2)
