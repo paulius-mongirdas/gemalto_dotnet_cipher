@@ -44,6 +44,13 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+	<Reference Include="SmartCard.Runtime, Version=2.3.0.0, Culture=neutral, PublicKeyToken=c4060b922a97e762, processorArchitecture=MSIL">
+		<SpecificVersion>False</SpecificVersion>
+		<HintPath>..\utils\NET Smartcard Framework SDK\v2.3.0\Libraries\Off Card\SmartCard.Runtime.dll</HintPath>
+	</Reference>
+	<Reference Include="System.Runtime.Remoting">
+		<Name>System.Runtime.Remoting</Name>
+	</Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Form1.cs">
@@ -75,6 +82,15 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <WCFMetadata Include="Connected Services\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\netCard_s1\netCard_s1.csproj">
+      <Project>{1b59a845-f0af-4726-99f6-72dec5d8a39c}</Project>
+      <Name>netCard_s1</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
