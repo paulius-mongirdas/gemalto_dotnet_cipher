@@ -507,47 +507,56 @@ namespace Cipher.OnCardApp
         {
             return cm.GetServices(false);
         }
-        // c2 ---------------------------
-        [Transaction]
-        public int VerifyPIN(int pin)
+        // passwords ---------------------------
+        private string passwordPath = "C:\\Secret\\password.txt";
+        private string salt = "SomeFixedSaltValue";
+        public string ComputeHash(string input, string salt)
         {
-            if (pin != pinCode)
+            Byte[] inputBytes = Encoding.UTF8.GetBytes(input);
+            Byte[] saltBytes = Encoding.UTF8.GetBytes(salt);
+            // Combine salt and input bytes
+            Byte[] saltedInput = new Byte[salt.Length + inputBytes.Length];
+            saltBytes.CopyTo(saltedInput, 0);
+            inputBytes.CopyTo(saltedInput, salt.Length);
+
+            Byte[] hashedBytes = SHA256.Create().ComputeHash(saltedInput);
+
+            return Convert.ToBase64String(hashedBytes);
+        }
+        public bool VerifyPassword(string inputPassword)
+        {
+            string storedHash = GetPassword();
+            string computedHash = ComputeHash(inputPassword, salt);
+            return computedHash == storedHash;
+        }
+        public void CreatePassword(string input)
+        {
+            string passwordFolder = "C:\\Secret";
+
+            if (!Directory.Exists(passwordFolder))
             {
-                attempts++;
-                if (attempts >= maxAttempts) locked = true;
-                return -1;
+                Directory.CreateDirectory(passwordFolder);
             }
-            if (locked) return -2;
-            return 0;
+
+            string hashedPassword = ComputeHash(input, salt);
+            using (StreamWriter sw = new StreamWriter(passwordPath, false, Encoding.UTF8))
+            {
+                sw.WriteLine(hashedPassword);
+            }
         }
-        [Transaction]
-        public int ChangePIN(int oldPin, int newPin)
+        public bool IsPasswordSet()
         {
-            if (oldPin != pinCode) return -1;
-            pinCode = newPin;
-            return 0;
+            return File.Exists(passwordPath);
         }
-        public int ViewBalance()
+        public string GetPassword()
         {
-            return balance;
-        }
-        [Transaction]
-        public int AddToWallet(int amount)
-        {
-            if (amount < 0) return -1;
-            balance += amount;
-            return 0;
-        }
-        [Transaction]
-        public int SubtractFromWallet(int amount)
-        {
-            if (amount < 0 || amount > balance) return -1;
-            balance -= amount;
-            return 0;
-        }
-        public int GetAttempts()
-        {
-            return maxAttempts - attempts;
+            if (!IsPasswordSet())
+                throw new FileNotFoundException("Password file not found.");
+
+            using (StreamReader sr = new StreamReader(passwordPath))
+            {
+                return sr.ReadLine();
+            }
         }
     }
 }
