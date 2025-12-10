@@ -451,7 +451,14 @@ namespace Cipher.OnCardApp
 
         public string[] GetKeys()
         {
-            return cm.GetFiles("C:\\Keys");
+            string keysFolder = "C:\\Keys";
+
+            if (!Directory.Exists(keysFolder))
+            {
+                Directory.CreateDirectory(keysFolder);
+            }
+
+            return cm.GetFiles(keysFolder);
         }
 
         public string[] GetFiles(string path)
