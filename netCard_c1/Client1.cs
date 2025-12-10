@@ -25,10 +25,56 @@ namespace Cipher.ClientApp
             // gauti nuorodą į kortelėje veikianti objekta
             Service service = (Service)Activator.GetObject(typeof(Service), URL);
 
+            int ret = -1;
+            while (ret != 0)
+            {
+                ret = Login(service);
+            }
             InputLoop(service);
 
             // uždaryti komunikavimo kanalą
             ChannelServices.UnregisterChannel(channel);
+        }
+        private static int Login(Service service)
+        {
+            bool isPasswordSet = service.IsPasswordSet();
+            while (!isPasswordSet)
+            {
+                Console.WriteLine("No password set. Please set up a new password:");
+                string pass = Console.ReadLine();
+                Console.WriteLine("Repeat password");
+                string pass2 = Console.ReadLine();
+                if (pass == pass2)
+                {
+                    service.CreatePassword(pass);
+                    isPasswordSet = service.IsPasswordSet();
+                    if (isPasswordSet)
+                    {
+                        Console.Clear();
+                        Console.WriteLine("Password set successfully.\n");
+                    }
+                }
+                else
+                {
+                    Console.Clear();
+                    Console.WriteLine("Passwords do not match. Try again.\n");
+                }
+            }
+            Console.WriteLine("Enter your password:");
+            string input = Console.ReadLine();
+            bool success = service.VerifyPassword(input);
+            if (success)
+            {
+                Console.Clear();
+                Console.WriteLine("Login successful.\n");
+                return 0;
+            }
+            else
+            {
+                Console.Clear();
+                Console.WriteLine("Login failed. Try again.\n");
+                return -1;
+            }
         }
         public static void InputLoop(Service service)
         {
