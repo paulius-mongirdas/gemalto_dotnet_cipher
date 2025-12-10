@@ -43,11 +43,11 @@ namespace Front
         // List of keys on card
         private string[] availableKeys = new string[0];
 
-        public Form1()
+        public Form1(Service authenticatedService)
         {
+            service = authenticatedService;
             InitializeComponents();
             LoadDrives();
-            InitializeSmartCardConnection();
         }
 
         private void InitializeComponents()
