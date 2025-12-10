@@ -662,10 +662,13 @@ namespace Front
                 return;
             }
 
+            string fileNameWithoutEnc = Path.GetFileNameWithoutExtension(selectedFile);
+            string extension = Path.GetExtension(fileNameWithoutEnc);
+
             string decryptedFile = Path.Combine(
                 Path.GetDirectoryName(selectedFile),
-                Path.GetFileNameWithoutExtension(selectedFile) + "_decrypted" +
-                (selectedFile.EndsWith(".enc") ? "" : ".txt")
+                Path.GetFileNameWithoutExtension(fileNameWithoutEnc) + "_decrypted" +
+                extension
             );
 
             try
