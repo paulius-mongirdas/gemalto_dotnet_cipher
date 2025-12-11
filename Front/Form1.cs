@@ -32,6 +32,9 @@ namespace Front
         private Label lblCurrentPath;
         private TextBox txtStatus;
 
+        private System.Windows.Forms.Timer connectionTimer;
+        private bool lastConnectionState = false;
+
         // Navigation
         private Stack<string> pathHistory = new Stack<string>();
         private string currentPath;
@@ -48,6 +51,7 @@ namespace Front
             service = authenticatedService;
             InitializeComponents();
             LoadDrives();
+            InitializeSmartCardConnection();
         }
 
         private void InitializeComponents()
@@ -55,6 +59,12 @@ namespace Front
             this.Text = "Smart Card Encryption App";
             this.Size = new Size(1200, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            connectionTimer = new System.Windows.Forms.Timer();
+            connectionTimer.Interval = 1000; // Check every 5 seconds
+            connectionTimer.Tick += ConnectionTimer_Tick;
+            connectionTimer.Start();
+
 
             // Create main split container for left-right layout
             SplitContainer mainSplitContainer = new SplitContainer
@@ -358,9 +368,11 @@ namespace Front
 
         private void UpdateButtons()
         {
-            bool isConnected = service != null; //check connection before anything
+            bool isConnected = IsCardConnected(); //check connection before anything
             btnGenerateKeys.Enabled = isConnected;
 
+            btnConnect.Enabled = true;
+            btnGenerateKeys.Enabled = isConnected;
             btnBack.Enabled = pathHistory.Count > 0;
 
             // Enable encrypt/decrypt based on selection
@@ -375,6 +387,14 @@ namespace Front
             }
             else
             {
+                btnEncrypt.Enabled = false;
+                btnDecrypt.Enabled = false;
+            }
+
+            if (!isConnected)
+            {
+                // Disable all smart card operations
+                btnGenerateKeys.Enabled = false;
                 btnEncrypt.Enabled = false;
                 btnDecrypt.Enabled = false;
             }
@@ -412,18 +432,24 @@ namespace Front
                 ChannelServices.RegisterChannel(channel);
                 service = (Service)Activator.GetObject(typeof(Service), URL);
 
-                //string[] serviceList = service.GetServices(); // Test call to verify connection
-                //bool success = serviceList != null && serviceList.Length > 0 &&
-                //    serviceList.Contains("gemalto_dotnet_cipher.uri");
-                //if (success)
+                // Test the connection
+                if (IsCardConnected())
+                {
                     UpdateStatus("Connected to smart card successfully", Color.Green);
+                    LoadAvailableKeys();
+                }
+                else
+                {
+                    UpdateStatus("Failed to connect to smart card", Color.Red);
+                }
 
-                btnGenerateKeys.Enabled = true;
-                LoadAvailableKeys();
+                UpdateButtons(); // Force UI update
             }
             catch (Exception ex)
             {
                 UpdateStatus($"Connection failed: {ex.Message}", Color.Red);
+                service = null; // Ensure service is null on failure
+                UpdateButtons(); // Update UI to reflect disconnection
             }
         }
 
@@ -480,7 +506,15 @@ namespace Front
 
         private void BtnConnect_Click(object sender, EventArgs e)
         {
-            InitializeSmartCardConnection();
+            if (IsCardConnected())
+            {
+                // Already connected, maybe show status
+                UpdateStatus("Smart card is already connected", Color.Green);
+            }
+            else
+            {
+                InitializeSmartCardConnection();
+            }
         }
 
         private void MainListView_MouseDoubleClick(object sender, MouseEventArgs e)
@@ -745,11 +779,74 @@ namespace Front
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (connectionTimer != null)
+            {
+                connectionTimer.Stop();
+                connectionTimer.Dispose();
+            }
+
             ChannelServices.UnregisterChannel(
                 ChannelServices.RegisteredChannels
                 .FirstOrDefault(c => c is APDUClientChannel)
             );
             base.OnFormClosing(e);
+        }
+
+        private bool IsCardConnected()
+        {
+            try
+            {
+                if (service == null) return false;
+
+                var task = Task.Run(() => service.GetKeys());
+                if (task.Wait(TimeSpan.FromSeconds(2))) // 2 second timeout
+                {
+                    return task.Result != null;
+                }
+                else
+                {
+                    // Timeout
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ConnectionTimer_Tick(object sender, EventArgs e)
+        {
+            bool isConnected = IsCardConnected();
+
+            // Update UI if connection state changed
+            if (isConnected != lastConnectionState)
+            {
+                lastConnectionState = isConnected;
+
+                this.Invoke((MethodInvoker)delegate
+                {
+                    UpdateKeyList(isConnected);
+                    UpdateButtons();
+                });
+            }
+        }
+
+        private void UpdateKeyList(bool isConnected)
+        {
+            if (isConnected)
+            {
+                // Refresh keys if reconnected
+                LoadAvailableKeys();
+                UpdateStatus("Smart card reconnected", Color.Green);
+            }
+            else
+            {
+                // Clear keys if disconnected
+                listKeys.Items.Clear();
+                availableKeys = new string[0];
+                UpdateStatus("Smart card disconnected", Color.Red);
+            }
         }
     }
 }
